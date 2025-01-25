@@ -92,7 +92,7 @@ After completing the steps above, simply run the following command to start the 
 pnpm dev
 ```
 
-Your app template should now be running on [localhost:3000](http://localhost:3000/).
+Your app template should now be running on [localhost:3001](http://localhost:3001/).
 
 ## Financial Data
 
@@ -105,11 +105,5 @@ Data includes financial statements, stock prices, options data, insider trades, 
 > Note: Data is free for AAPL, GOOGL, MSFT, NVDA, and TSLA.
 
 If you do not want to use the Financial Datasets API, you can easily switch to another data provider by modifying a few lines of code.
-
-## Deploy Your Own 🚀
-
-You can deploy your own version of the AI Financial Agent in production via Vercel with one click:
-
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fvirattt%2Fai-financial-agent&env=AUTH_SECRET,OPENAI_API_KEY&envDescription=Learn%20more%20about%20how%20to%20get%20the%20API%20Keys%20for%20the%20application&envLink=https%3A%2F%2Fgithub.com%2Fvercel%2Fai-financial-agent%2Fblob%2Fmain%2F.env.example&demo-title=AI%20Financial%20Agent&demo-description=An%20open-source%20financial%20agent%20chat%20template%20built%20with%20the%20AI%20SDK%20by%20Vercel%20and%20Financial%20Datasets%20API.&demo-url=https%3A%2F%2Fchat.vercel.ai&stores=[{%22type%22:%22postgres%22},{%22type%22:%22blob%22}])
 
 
