@@ -41,24 +41,7 @@ By using this software, you agree to use it solely for learning purposes.
 
 ## Setup 🛠️
 
-```bash
-git clone https://github.com/virattt/ai-financial-agent.git
-cd ai-financial-agent
-```
-
-> If you do not have npm installed, please install it from [here](https://nodejs.org/en/download/).
-
-1. Install pnpm (if not already installed):
-```bash
-npm install -g pnpm
-```
-
-2. Install dependencies:
-```bash
-pnpm install
-```
-
-3. Set up your environment variables:
+1. Set up your environment variables:
 ```bash
 # Create .env file for your API keys
 cp .env.example .env
@@ -80,16 +63,18 @@ LANGCHAIN_PROJECT=ai-financial-agent
 
 > Note: You should not commit your `.env` file or it will expose secrets that will allow others to control access to your various OpenAI and authentication provider accounts.
 
-If you want to deploy your own version of the AI Financial Agent in production, you need to link your local instance with your Vercel and GitHub accounts.
+2. Next, to deploy your own version of the AI Financial Agent in production, you need to link your local instance with your Vercel and GitHub accounts. For this exercise, we need the Postgres database.
 1. Install Vercel CLI: `npm i -g vercel`
 2. Link local instance with Vercel and GitHub accounts (creates `.vercel` directory): `vercel link`
 3. Download your environment variables: `vercel env pull`
 
+3. Complete your `.env` file
+
 ## Usage 🎮
 
-After completing the steps above, simply run the following command to start the development server:
+After completing the steps above, simply run the following command to start the Docker development server:
 ```bash
-pnpm dev
+docker-compose up -d
 ```
 
 Your app template should now be running on [localhost:3001](http://localhost:3001/).
