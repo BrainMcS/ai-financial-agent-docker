@@ -1,0 +1,25 @@
+version: "3.9"
+services:
+  web:
+    build:
+      context: .
+      args:
+        OPENAI_API_KEY: ${OPENAI_API_KEY}
+        FINANCIAL_DATASETS_API_KEY: ${FINANCIAL_DATASETS_API_KEY}
+        LANGCHAIN_API_KEY: ${LANGCHAIN_API_KEY}
+    ports:
+      - "3001:3000"
+    volumes:
+      - .:/app
+    command: pnpm dev
+    environment:
+      NODE_ENV: development
+      POSTGRES_URL: ${POSTGRES_URL}
+    env_file:
+      - .env.docker
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
