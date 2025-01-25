@@ -21,7 +21,7 @@ ENV LANGCHAIN_API_KEY=$LANGCHAIN_API_KEY
 ENV LANGCHAIN_TRACING_V2=true
 ENV LANGCHAIN_PROJECT=ai-financial-agent
 
-RUN pnpm run build # if needed for your app
+RUN pnpm run build
 
 EXPOSE 3000
 CMD ["pnpm", "start"]
