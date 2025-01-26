@@ -10,7 +10,7 @@ import { z } from 'zod';
 
 import { auth } from '@/app/(auth)/auth';
 import { customModel } from '@/lib/ai';
-import { models } from '@/lib/ai/models';
+import { AIModel, models } from '@/lib/ai/models';
 import {
   codePrompt,
   systemPrompt,
@@ -32,13 +32,18 @@ import {
   sanitizeResponseMessages,
 } from '@/lib/utils';
 
+import { GoogleGenerativeAI, GenerateContentResult, GenerativeModel } from "@google/generative-ai";
+import Anthropic from '@anthropic-ai/sdk';
 import { generateTitleFromUserMessage } from '../../actions';
 import { AISDKExporter } from 'langsmith/vercel';
 import { validStockSearchFilters } from '@/lib/api/stock-filters';
-import { openai } from '@ai-sdk/openai';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
+interface Task {
+  task_name: string;
+  class: string;
+}
 
 type AllowedTools =
   | 'getCurrentStockPrice'
@@ -67,8 +72,16 @@ export async function POST(request: Request) {
     messages,
     modelId,
     financialDatasetsApiKey,
-  }: { id: string; messages: Array<Message>; modelId: string; financialDatasetsApiKey?: string } =
-    await request.json();
+    googleApiKey,
+    anthropicApiKey,
+  }: {
+    id: string;
+    messages: Array<Message>;
+    modelId: string;
+    financialDatasetsApiKey?: string;
+    googleApiKey?: string;
+    anthropicApiKey?: string;
+  } = await request.json();
 
   const session = await auth();
 
@@ -76,11 +89,29 @@ export async function POST(request: Request) {
     return new Response('Unauthorized', { status: 401 });
   }
 
-  const model = models.find((model) => model.id === modelId);
+  const model = models.find((model) => model.id === modelId) as AIModel;
 
   if (!model) {
     return new Response('Model not found', { status: 404 });
   }
+
+  // Initialize AI models based on provider
+  const aiModel = (() => {
+    switch (model.provider) {
+      case 'openai':
+        return customModel(model.apiIdentifier);
+      case 'gemini':
+        const genAI = new GoogleGenerativeAI(googleApiKey || '');
+        return genAI.getGenerativeModel({ model: model.apiIdentifier });
+      case 'claude':
+        const anthropic = new Anthropic({
+          apiKey: anthropicApiKey || '',
+        });
+        return anthropic; // Return the entire client instead of just messages
+      default:
+        throw new Error('Unsupported model provider');
+    }
+  })();
 
   const coreMessages = convertToCoreMessages(messages);
   const userMessage = getMostRecentUserMessage(coreMessages);
@@ -132,37 +163,105 @@ export async function POST(request: Request) {
         }
       });
 
-      const { object } = await generateObject({
-        model: openai('gpt-4o-mini'),
-        output: 'array',
-        schema: z.object({
-          task_name: z.string(),
-          class: z
-            .string()
-            .describe('The name of the sub-task'),
-        }),
-        prompt: `You are a reasoning agent.  
-        Given the following user query: ${userMessage.content}, 
-        break it down to small, tightly-scoped sub-tasks 
-        that need to be taken to answer the query.  
-        The task name should include the ticker or company name where appropriate.  
-        The task name must be in the present progressive tense as if you are telling another agent what to do.
-        The task name should be short (max 5 words), but comprehensive.
-        Create the least number of tasks possible, but make sure they are comprehensive to answer the query.
-        Your output will be given to another LLM, which will use tools to execute the tasks.
-        Make sure your tasks are not too complex and can be completed with the optimal number of tools.
-        Make your task names friendly, concise, easy to understand, and accessible.
-        Example: "Getting current price for AAPL", "Analyzing revenue trends", etc.`,
-      });
+      // Generate tasks based on the AI model provider
+      const generateTasks = async () => {
+        const taskPrompt = `Break down this query into small, tightly-scoped sub-tasks: "${userMessage.content}"
+        Requirements:
+        - Include ticker/company name where appropriate
+        - Include the stock graphs where appropriate
+        - Use present progressive tense (e.g., "Getting", "Analyzing")
+        - Keep task names short (max 5 words)
+        - Make tasks comprehensive but minimal
+        - Make tasks executable with available tools
+        Example output format:
+        [
+          {"task_name": "Getting current price for AAPL", "class": "price_check"},
+          {"task_name": "Analyzing revenue trends", "class": "financial_analysis"}
+        ]`;
 
-      // Stream the tasks in the query loading state
-      dataStream.writeData({
-        type: 'query-loading',
-        content: {
-          isLoading: true,
-          taskNames: object.map(task => task.task_name)
+        try {
+          switch (model.provider) {
+            case 'openai':
+              const { object } = await generateObject({
+                model: customModel(model.apiIdentifier),
+                output: 'array',
+                schema: z.object({
+                  task_name: z.string(),
+                  class: z.string().describe('The name of the sub-task'),
+                }),
+                prompt: taskPrompt,
+              });
+              return object;
+
+              case 'gemini':
+                try {
+                  const geminiModel = aiModel as GenerativeModel;
+                  const result: GenerateContentResult = await geminiModel.generateContent({
+                    contents: [{ role: "user", parts: [{ text: taskPrompt }] }],
+                    generationConfig: {
+                      temperature: 0.7,
+                      maxOutputTokens: 1024,
+                    },
+                  });
+              
+                  const response = await result.response;
+                  const text = await response.text();
+              
+                  try {
+                    return JSON.parse(text);
+                  } catch (jsonError) {
+                    console.warn("Gemini response is not valid JSON:", text);
+                    return [{ task_name: 'Analyzing your query...', class: 'default' }];
+                  }
+                } catch (error) {
+                  console.error("Error calling Gemini API:", error);
+                  return [{ task_name: 'Analyzing your query...', class: 'default' }];
+                }
+
+            case 'claude':
+              const claudeModel = aiModel as Anthropic;
+              const claudeResponse = await claudeModel.messages.create({
+                model: model.apiIdentifier,
+                max_tokens: 1024,
+                messages: [{ role: 'user', content: taskPrompt }],
+              });
+              // Handle the content correctly from the Claude response
+              const content = claudeResponse.content[0].type === 'text' 
+                ? claudeResponse.content[0].text 
+                : JSON.stringify([{ task_name: 'Analyzing your query...', class: 'default' }]);
+              return JSON.parse(content);
+
+            default:
+              throw new Error('Unsupported model provider');
+          }
+        } catch (error) {
+          console.error('Error generating tasks:', error);
+          return [{ task_name: 'Analyzing your query...', class: 'default' }];
         }
-      });
+      };
+
+      const tasks = await generateTasks();
+            
+            // Validate tasks structure
+            const validTasks = Array.isArray(tasks) ? tasks.filter(task => 
+              task && typeof task === 'object' && 
+              typeof task.task_name === 'string' && 
+              typeof task.class === 'string'
+            ) : [];
+      
+            // Use validated tasks or fallback
+            const safeTasks = validTasks.length > 0 
+              ? validTasks 
+              : [{ task_name: 'Analyzing your query...', class: 'default' }];
+      
+            // Stream the tasks in the query loading state
+            dataStream.writeData({
+              type: 'query-loading',
+              content: {
+                isLoading: true,
+                taskNames: safeTasks.map(task => task.task_name)
+              }
+            });
 
       let receivedFirstChunk = false;
 
@@ -171,7 +270,7 @@ export async function POST(request: Request) {
       // Replace the last user message content with task names
       const lastMessage = coreMessagesWithTaskNames[coreMessagesWithTaskNames.length - 1];
       if (coreMessagesWithTaskNames.length > 0 && lastMessage?.role === 'user') {
-        const taskList = object.map(task => task.task_name).join('\n');
+        const taskList = tasks.map((task: Task) => task.task_name).join('\n');
         coreMessagesWithTaskNames[coreMessagesWithTaskNames.length - 1] = {
           role: 'user',
           content: taskList
@@ -185,6 +284,7 @@ export async function POST(request: Request) {
         maxSteps: 10,
         experimental_activeTools: allTools,
         experimental_telemetry: AISDKExporter.getSettings(),
+        // Remove the provider field since it's now part of the model configuration
         onChunk: (event) => {
           const isToolCall = event.chunk.type === 'tool-call';
           if (!receivedFirstChunk && !isToolCall) {
