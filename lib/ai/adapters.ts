@@ -3,17 +3,10 @@ import {
     type LanguageModelV1StreamPart,
     type LanguageModelV1CallOptions,
   } from 'ai';
-
-  
   import { GenerativeModel } from "@google/generative-ai";
   import Anthropic from '@anthropic-ai/sdk';
   
-  // Add these adapter functions after the imports and before the route handlers
-  // First, let's define proper interfaces for our adapters
-  // Update the ModelAdapter interface to extend LanguageModelV1
-  
-
-interface ModelAdapter extends Omit<LanguageModelV1, 'doStream' | 'doGenerate'> {
+  interface ModelAdapter extends Omit<LanguageModelV1, 'doStream' | 'doGenerate'> {
     provider: string;
     generateContent: (params: any) => Promise<any>;
     specificationVersion: "v1";
@@ -51,10 +44,7 @@ interface ModelAdapter extends Omit<LanguageModelV1, 'doStream' | 'doGenerate'> 
     handleResponse: (response: any) => Promise<any>;
   }
   
-  // Update the adapter functions to include required LanguageModelV1 properties
-  // Update the Gemini adapter implementation
-  function createGeminiAdapter(model: GenerativeModel): ModelAdapter {
-    // Helper function for request preparation
+  export function createGeminiAdapter(model: GenerativeModel): ModelAdapter {
     async function prepareRequest(settings: any) {
       return {
         contents: [{ role: 'user', parts: [{ text: settings.prompt }] }],
@@ -83,7 +73,6 @@ interface ModelAdapter extends Omit<LanguageModelV1, 'doStream' | 'doGenerate'> 
       specificationVersion: "v1",
       modelId: 'gemini-pro',
       defaultObjectGenerationMode: "json",
-      // Add required methods
       callAPI: async (settings: any) => {
         return model.generateContent(settings);
       },
@@ -128,7 +117,21 @@ interface ModelAdapter extends Omit<LanguageModelV1, 'doStream' | 'doGenerate'> 
     };
   }
   
-  function createClaudeAdapter(client: Anthropic): ModelAdapter {
+  export function createClaudeAdapter(client: Anthropic): ModelAdapter {
+    async function prepareRequest(settings: any) {
+      return {
+        model: 'claude-3-sonnet-20240229',
+        max_tokens: 2048,
+        messages: [{
+          role: 'user',
+          content: settings.prompt
+        }],
+        ...(settings.system && {
+          system: settings.system
+        })
+      };
+    }
+  
     return {
       provider: 'claude',
       generateContent: async (messages: any) => {
@@ -145,20 +148,13 @@ interface ModelAdapter extends Omit<LanguageModelV1, 'doStream' | 'doGenerate'> 
       specificationVersion: "v1",
       modelId: 'claude-3-sonnet-20240229',
       defaultObjectGenerationMode: "json",
-      // Add required methods
       callAPI: async (settings: any) => {
         return client.messages.create(settings);
       },
       validateSettings: (settings: any) => {
         // Add validation if needed
       },
-      prepareRequest: async (settings: any) => {
-        return {
-          ...settings,
-          model: 'claude-3-sonnet-20240229',
-          max_tokens: 2048
-        };
-      },
+      prepareRequest,
       handleResponse: async (response: any) => {
         return response;
       },
@@ -167,7 +163,7 @@ interface ModelAdapter extends Omit<LanguageModelV1, 'doStream' | 'doGenerate'> 
         const response = await client.messages.create(prepared);
         const content = response.content[0].type === 'text' 
           ? response.content[0].text 
-          : '';  // Handle non-text content blocks
+          : '';
         return {
           content,
           rawResponse: response
@@ -196,21 +192,6 @@ interface ModelAdapter extends Omit<LanguageModelV1, 'doStream' | 'doGenerate'> 
           },
           rawResponse: response
         };
-      },
+      }
     };
-  
-    // Helper function for request preparation
-    async function prepareRequest(settings: any) {
-      return {
-        model: 'claude-3-sonnet-20240229',
-        max_tokens: 2048,
-        messages: [{
-          role: 'user',
-          content: settings.prompt
-        }],
-        ...(settings.system && {
-          system: settings.system
-        })
-      };
-    }
   }

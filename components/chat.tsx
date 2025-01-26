@@ -8,8 +8,12 @@ import useSWR, { useSWRConfig } from 'swr';
 import { ChatHeader } from '@/components/chat-header';
 import type { Vote } from '@/lib/db/schema';
 import { fetcher, track } from '@/lib/utils';
-// Update imports
-import { getFinancialDatasetsApiKey, getLocalOpenAIApiKey, getGeminiApiKey, getClaudeApiKey } from '@/lib/db/api-keys';
+import { 
+  getFinancialDatasetsApiKey, 
+  getOpenAIApiKey, 
+  getGeminiApiKey, 
+  getClaudeApiKey 
+} from '@/lib/db/api-keys';
 import { AIModel } from '@/lib/ai/models';
 import { Block } from './block';
 import { MultimodalInput } from './multimodal-input';
@@ -38,16 +42,13 @@ export function Chat({
   id,
   initialMessages,
   selectedModelId,
-  availableModels,  // Add this line
+  availableModels, // Add this to destructuring
   selectedVisibilityType,
   isReadonly,
 }: ChatProps) {
   const { mutate } = useSWRConfig();
-  const financialDatasetsApiKey = getFinancialDatasetsApiKey();
-  const googleApiKey = getGeminiApiKey();
-  const anthropicApiKey = getClaudeApiKey();
   const [showApiKeysModal, setShowApiKeysModal] = useState(false);
-  const provider = getModelProvider(selectedModelId);  // Add this line
+  const provider = getModelProvider(selectedModelId);
 
   const {
     messages,
@@ -64,9 +65,9 @@ export function Chat({
     body: { 
       id, 
       modelId: selectedModelId,
-      financialDatasetsApiKey,
-      googleApiKey,
-      anthropicApiKey
+      financialDatasetsApiKey: getFinancialDatasetsApiKey(),
+      googleApiKey: getGeminiApiKey(),
+      anthropicApiKey: getClaudeApiKey(),
     },
     initialMessages,
     experimental_throttle: 100,
@@ -99,13 +100,13 @@ export function Chat({
 
       switch (provider.id) {
         case 'openai':
-          hasValidKey = !!getLocalOpenAIApiKey();
+          hasValidKey = !!(await getOpenAIApiKey());
           break;
         case 'gemini':
-          hasValidKey = !!getGeminiApiKey();
+          hasValidKey = !!(await getGeminiApiKey());
           break;
         case 'claude':
-          hasValidKey = !!getClaudeApiKey();
+          hasValidKey = !!(await getClaudeApiKey());
           break;
       }
 

@@ -35,13 +35,17 @@ export async function validateOpenAIKey(apiKey: string): Promise<ValidationResul
 export async function validateGeminiKey(apiKey: string): Promise<ValidationResult> {
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+    const model = genAI.getGenerativeModel({ model: "gemini-pro" }); // Updated model name
     
     // Test with a minimal prompt
-    const result = await model.generateContent("Test");
-    const response = await result.response;
+    const result = await model.generateContent({
+      contents: [{ role: "user", parts: [{ text: "Test" }] }]
+    });
     
-    if (response.text()) {
+    const response = await result.response;
+    const text = await response.text();
+    
+    if (text) {
       return { isValid: true };
     }
     
@@ -49,10 +53,10 @@ export async function validateGeminiKey(apiKey: string): Promise<ValidationResul
       isValid: false,
       error: 'Invalid Gemini API key'
     };
-  } catch (error) {
+  } catch (error: any) {
     return {
       isValid: false,
-      error: 'Invalid Gemini API key. Please check your key and try again.'
+      error: error.message || 'Invalid Gemini API key. Please check your key and try again.'
     };
   }
 }

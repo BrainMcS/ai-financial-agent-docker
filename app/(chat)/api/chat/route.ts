@@ -1,5 +1,5 @@
 import {
-  type Message,
+  type LanguageModelV1,
   convertToCoreMessages,
   createDataStreamResponse,
   generateObject,
@@ -32,11 +32,12 @@ import {
   sanitizeResponseMessages,
 } from '@/lib/utils';
 
-import { GoogleGenerativeAI, GenerateContentResult, GenerativeModel } from "@google/generative-ai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import Anthropic from '@anthropic-ai/sdk';
 import { generateTitleFromUserMessage } from '../../actions';
 import { AISDKExporter } from 'langsmith/vercel';
 import { validStockSearchFilters } from '@/lib/api/stock-filters';
+import { createGeminiAdapter, createClaudeAdapter } from '@/lib/ai/adapters';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -52,7 +53,10 @@ type AllowedTools =
   | 'getBalanceSheets'
   | 'getCashFlowStatements'
   | 'getFinancialMetrics'
-  | 'searchStocksByFilters';
+  | 'searchStocksByFilters'
+  | 'createDocument'
+  | 'updateDocument'
+  | 'requestSuggestions';
 
 const financialDatasetsTools: AllowedTools[] = [
   'getCurrentStockPrice',
@@ -61,10 +65,16 @@ const financialDatasetsTools: AllowedTools[] = [
   'getBalanceSheets',
   'getCashFlowStatements',
   'getFinancialMetrics',
-  'searchStocksByFilters',
+  'searchStocksByFilters'
 ];
 
-const allTools: AllowedTools[] = [...financialDatasetsTools];
+const documentTools: AllowedTools[] = [
+  'createDocument',
+  'updateDocument',
+  'requestSuggestions'
+];
+
+const allTools: AllowedTools[] = [...financialDatasetsTools, ...documentTools];
 
 export async function POST(request: Request) {
   const {
@@ -74,13 +84,6 @@ export async function POST(request: Request) {
     financialDatasetsApiKey,
     googleApiKey,
     anthropicApiKey,
-  }: {
-    id: string;
-    messages: Array<Message>;
-    modelId: string;
-    financialDatasetsApiKey?: string;
-    googleApiKey?: string;
-    anthropicApiKey?: string;
   } = await request.json();
 
   const session = await auth();
@@ -95,24 +98,46 @@ export async function POST(request: Request) {
     return new Response('Model not found', { status: 404 });
   }
 
-  // Initialize AI models based on provider
-  const aiModel = (() => {
+  // Validate required API keys and use environment variables as fallback
+  switch (model.provider) {
+    case 'gemini':
+      if (!googleApiKey && !process.env.GOOGLE_API_KEY) {
+        return new Response('Gemini API key is required', { status: 400 });
+      }
+      break;
+    case 'claude':
+      if (!anthropicApiKey && !process.env.ANTHROPIC_API_KEY) {
+        return new Response('Claude API key is required', { status: 400 });
+      }
+      break;
+    case 'openai':
+      if (!process.env.OPENAI_API_KEY) {
+        return new Response('OpenAI API key is required', { status: 400 });
+      }
+      break;
+  }
+
+  // Use provided API key or fall back to environment variable
+  const finalGoogleApiKey = googleApiKey || process.env.GOOGLE_API_KEY;
+  const finalAnthropicApiKey = anthropicApiKey || process.env.ANTHROPIC_API_KEY;
+
+  // Initialize AI model based on provider
+    // Initialize AI model based on provider
+    let aiModel: LanguageModelV1;
     switch (model.provider) {
-      case 'openai':
-        return customModel(model.apiIdentifier);
       case 'gemini':
-        const genAI = new GoogleGenerativeAI(googleApiKey || '');
-        return genAI.getGenerativeModel({ model: model.apiIdentifier });
+        const genAI = new GoogleGenerativeAI(finalGoogleApiKey);
+        aiModel = createGeminiAdapter(genAI.getGenerativeModel({ model: "gemini-pro" })) as unknown as LanguageModelV1;
+        break;
       case 'claude':
-        const anthropic = new Anthropic({
-          apiKey: anthropicApiKey || '',
-        });
-        return anthropic; // Return the entire client instead of just messages
+        aiModel = createClaudeAdapter(new Anthropic({ apiKey: finalAnthropicApiKey })) as unknown as LanguageModelV1;
+        break;
+      case 'openai':
+        aiModel = customModel(model.apiIdentifier);
+        break;
       default:
         throw new Error('Unsupported model provider');
     }
-  })();
-
   const coreMessages = convertToCoreMessages(messages);
   const userMessage = getMostRecentUserMessage(coreMessages);
 
@@ -123,7 +148,22 @@ export async function POST(request: Request) {
   const chat = await getChatById({ id });
 
   if (!chat) {
-    const title = await generateTitleFromUserMessage({ message: userMessage });
+    const title = await generateTitleFromUserMessage({ 
+      message: { 
+        role: userMessage.role,
+        content: typeof userMessage.content === 'string' 
+          ? userMessage.content 
+          : Array.isArray(userMessage.content) 
+            ? userMessage.content.map(part => {
+                if (typeof part === 'string') return part;
+                if ('text' in part) return part.text;
+                if ('image_url' in part) return '[Image]';
+                if ('file_url' in part) return '[File]';
+                return '';
+              }).join(' ')
+            : ''
+      }
+    });
     await saveChat({ id, userId: session.user.id, title });
   }
 
@@ -173,6 +213,7 @@ export async function POST(request: Request) {
         - Keep task names short (max 5 words)
         - Make tasks comprehensive but minimal
         - Make tasks executable with available tools
+        - Make a conclusion to advice them if the stock is healthy or not
         Example output format:
         [
           {"task_name": "Getting current price for AAPL", "class": "price_check"},
@@ -195,20 +236,21 @@ export async function POST(request: Request) {
 
               case 'gemini':
                 try {
-                  const geminiModel = aiModel as GenerativeModel;
-                  const result: GenerateContentResult = await geminiModel.generateContent({
-                    contents: [{ role: "user", parts: [{ text: taskPrompt }] }],
-                    generationConfig: {
-                      temperature: 0.7,
-                      maxOutputTokens: 1024,
-                    },
-                  });
-              
+                  const geminiModel = (aiModel as unknown) as ReturnType<typeof createGeminiAdapter>;
+                  const result = await geminiModel.generateContent([{
+                    role: "user",
+                    content: taskPrompt
+                  }]);
+                
                   const response = await result.response;
                   const text = await response.text();
-              
+                  
                   try {
-                    return JSON.parse(text);
+                    const parsedResponse = JSON.parse(text);
+                    if (Array.isArray(parsedResponse)) {
+                      return parsedResponse;
+                    }
+                    return [{ task_name: 'Analyzing your query...', class: 'default' }];
                   } catch (jsonError) {
                     console.warn("Gemini response is not valid JSON:", text);
                     return [{ task_name: 'Analyzing your query...', class: 'default' }];
@@ -218,27 +260,29 @@ export async function POST(request: Request) {
                   return [{ task_name: 'Analyzing your query...', class: 'default' }];
                 }
 
-            case 'claude':
-              const claudeModel = aiModel as Anthropic;
-              const claudeResponse = await claudeModel.messages.create({
-                model: model.apiIdentifier,
-                max_tokens: 1024,
-                messages: [{ role: 'user', content: taskPrompt }],
-              });
-              // Handle the content correctly from the Claude response
-              const content = claudeResponse.content[0].type === 'text' 
-                ? claudeResponse.content[0].text 
-                : JSON.stringify([{ task_name: 'Analyzing your query...', class: 'default' }]);
-              return JSON.parse(content);
+              case 'claude':
+                try {
+                  const claudeModel = (aiModel as unknown) as ReturnType<typeof createClaudeAdapter>;
+                  const claudeResponse = await claudeModel.generateContent({
+                    messages: [{ role: 'user', content: taskPrompt }]
+                  });
+                  const content = claudeResponse.content[0].type === 'text' 
+                    ? claudeResponse.content[0].text 
+                    : JSON.stringify([{ task_name: 'Analyzing your query...', class: 'default' }]);
+                  return JSON.parse(content);
+                } catch (error) {
+                  console.error("Error calling Claude API:", error);
+                  return [{ task_name: 'Analyzing your query...', class: 'default' }];
+                }
 
-            default:
-              throw new Error('Unsupported model provider');
+              default:
+                throw new Error('Unsupported model provider');
+            }
+          } catch (error) {
+            console.error('Error generating tasks:', error);
+            return [{ task_name: 'Analyzing your query...', class: 'default' }];
           }
-        } catch (error) {
-          console.error('Error generating tasks:', error);
-          return [{ task_name: 'Analyzing your query...', class: 'default' }];
-        }
-      };
+       };
 
       const tasks = await generateTasks();
             
@@ -278,7 +322,8 @@ export async function POST(request: Request) {
       }
 
       const result = streamText({
-        model: customModel(model.apiIdentifier),
+        // This was incorrectly using OpenAI's model for all providers
+        model: model.provider === 'openai' ? customModel(model.apiIdentifier) : aiModel as LanguageModelV1,
         system: systemPrompt,
         messages: coreMessagesWithTaskNames,
         maxSteps: 10,

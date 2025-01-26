@@ -1,15 +1,21 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Eye, EyeOff } from 'lucide-react';
-import { getOpenAIApiKey, setOpenAIApiKey, getFinancialDatasetsApiKey, setFinancialDatasetsApiKey, 
-  getGeminiApiKey, setGeminiApiKey, getClaudeApiKey, setClaudeApiKey } from '@/lib/db/api-keys';
-// Update imports at the top
+import { 
+  getOpenAIApiKey, 
+  setOpenAIApiKey, 
+  getFinancialDatasetsApiKey, 
+  setFinancialDatasetsApiKey,
+  getGeminiApiKey, 
+  setGeminiApiKey, 
+  getClaudeApiKey, 
+  setClaudeApiKey 
+} from '@/lib/db/api-keys';
 import { validateOpenAIKey, validateGeminiKey, validateClaudeKey } from '@/lib/utils/api-key-validation';
-
 
 interface ApiKeysModalProps {
   open: boolean;
@@ -24,10 +30,30 @@ export function ApiKeysModal({
   title = "Configure API keys",
   description 
 }: ApiKeysModalProps) {
-  const [openAIKey, setOpenAIKey] = useState(getOpenAIApiKey() || '');
-  const [financialKey, setFinancialKey] = useState(getFinancialDatasetsApiKey() || '');
-  const [geminiKey, setGeminiKey] = useState(getGeminiApiKey() || '');
-  const [claudeKey, setClaudeKey] = useState(getClaudeApiKey() || '');
+  const [openAIKey, setOpenAIKey] = useState('');
+  const [financialKey, setFinancialKey] = useState('');
+  const [geminiKey, setGeminiKey] = useState('');
+  const [claudeKey, setClaudeKey] = useState('');
+
+  
+  useEffect(() => {
+    const loadApiKeys = async () => {
+      const [openAI, financial, gemini, claude] = await Promise.all([
+        getOpenAIApiKey(),
+        getFinancialDatasetsApiKey(),
+        getGeminiApiKey(),
+        getClaudeApiKey()
+      ]);
+
+      setOpenAIKey(openAI || '');
+      setFinancialKey(financial || '');
+      setGeminiKey(gemini || '');
+      setClaudeKey(claude || '');
+    };
+
+    loadApiKeys();
+  }, []);
+
   const [showOpenAIKey, setShowOpenAIKey] = useState(false);
   const [showFinancialKey, setShowFinancialKey] = useState(false);
   const [showGeminiKey, setShowGeminiKey] = useState(false);

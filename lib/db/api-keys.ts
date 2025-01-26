@@ -1,12 +1,10 @@
 import { getLocalStorage, setLocalStorage } from "../utils";
 
+// Remove these duplicate functions since we already have their equivalents above
 export const getOpenAIApiKey = () => {
-  // Only check env variable on server side
   if (typeof window === 'undefined') {
     return process.env.OPENAI_API_KEY;
   }
-  
-  // Check localStorage on client side
   const apiKey = getLocalStorage('openaiApiKey');
   return apiKey || process.env.OPENAI_API_KEY;
 };
@@ -58,7 +56,7 @@ export const setFinancialDatasetsApiKey = async (apiKey: string) => {
   setLocalStorage('financialDatasetsApiKey', apiKey);
 };
 
-export const getLocalOpenAIApiKey = () => {
-  if (typeof window === 'undefined') return null;
-  return getLocalStorage('openaiApiKey');
-};
+// Remove these duplicate declarations
+// export async function getLocalOpenAIApiKey(): Promise<string | null> { ... }
+// export async function getLocalGeminiApiKey(): Promise<string | null> { ... }
+// export async function getLocalClaudeApiKey(): Promise<string | null> { ... }

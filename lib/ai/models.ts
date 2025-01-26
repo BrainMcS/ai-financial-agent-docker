@@ -38,4 +38,9 @@ export const models: Array<AIModel> = [
   },
 ];
 
-export const DEFAULT_MODEL_NAME: string = 'gpt-4o-mini';
+// Change the default model to be determined dynamically
+export const getDefaultModel = () => {
+  return models.find(model => model.provider === 'openai')?.id || models[0].id;
+};
+
+export const DEFAULT_MODEL_NAME = getDefaultModel();
