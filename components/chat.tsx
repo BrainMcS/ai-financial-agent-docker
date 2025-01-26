@@ -8,8 +8,13 @@ import useSWR, { useSWRConfig } from 'swr';
 import { ChatHeader } from '@/components/chat-header';
 import type { Vote } from '@/lib/db/schema';
 import { fetcher, track } from '@/lib/utils';
-import { getFinancialDatasetsApiKey, getLocalOpenAIApiKey } from '@/lib/db/api-keys';
-
+import { 
+  getFinancialDatasetsApiKey, 
+  getOpenAIApiKey, 
+  getGeminiApiKey, 
+  getClaudeApiKey 
+} from '@/lib/db/api-keys';
+import { AIModel } from '@/lib/ai/models';
 import { Block } from './block';
 import { MultimodalInput } from './multimodal-input';
 import { Messages } from './messages';
@@ -17,22 +22,33 @@ import { VisibilityType } from './visibility-selector';
 import { useBlockSelector } from '@/hooks/use-block';
 import { ApiKeysModal } from '@/components/api-keys-modal';
 
+const getModelProvider = (modelId: string) => {
+  if (modelId.startsWith('openai')) return { id: 'openai', name: 'OpenAI' };
+  if (modelId.startsWith('gemini')) return { id: 'gemini', name: 'Google Gemini' };
+  if (modelId.startsWith('claude')) return { id: 'claude', name: 'Anthropic Claude' };
+  return { id: 'unknown', name: 'Unknown Provider' };
+};
+
+interface ChatProps {
+  id: string;
+  initialMessages: Array<Message>;
+  selectedModelId: string;
+  availableModels: Array<AIModel>;  // Add this line
+  selectedVisibilityType: VisibilityType;
+  isReadonly: boolean;
+}
+
 export function Chat({
   id,
   initialMessages,
   selectedModelId,
+  availableModels, // Add this to destructuring
   selectedVisibilityType,
   isReadonly,
-}: {
-  id: string;
-  initialMessages: Array<Message>;
-  selectedModelId: string;
-  selectedVisibilityType: VisibilityType;
-  isReadonly: boolean;
-}) {
+}: ChatProps) {
   const { mutate } = useSWRConfig();
-  const financialDatasetsApiKey = getFinancialDatasetsApiKey();
   const [showApiKeysModal, setShowApiKeysModal] = useState(false);
+  const provider = getModelProvider(selectedModelId);
 
   const {
     messages,
@@ -49,7 +65,9 @@ export function Chat({
     body: { 
       id, 
       modelId: selectedModelId,
-      financialDatasetsApiKey
+      financialDatasetsApiKey: getFinancialDatasetsApiKey(),
+      googleApiKey: getGeminiApiKey(),
+      anthropicApiKey: getClaudeApiKey(),
     },
     initialMessages,
     experimental_throttle: 100,
@@ -69,7 +87,7 @@ export function Chat({
     }
 
     try {
-      // Only check message count if we have a local API key
+      const provider = getModelProvider(selectedModelId);
       const response = await fetch('/api/messages/count');
       const data = await response.json();
       
@@ -77,17 +95,27 @@ export function Chat({
         throw new Error(data.error);
       }
 
-      // Check if user has reached their free message limit
       const maxFreeMessageCount = 3;
-      const localApiKey = getLocalOpenAIApiKey();
-      if (data.count >= maxFreeMessageCount && !localApiKey) {
+      let hasValidKey = false;
+
+      switch (provider.id) {
+        case 'openai':
+          hasValidKey = !!(await getOpenAIApiKey());
+          break;
+        case 'gemini':
+          hasValidKey = !!(await getGeminiApiKey());
+          break;
+        case 'claude':
+          hasValidKey = !!(await getClaudeApiKey());
+          break;
+      }
+
+      if (data.count >= maxFreeMessageCount && !hasValidKey) {
         setShowApiKeysModal(true);
         return;
       }
 
-      // Track the message submission
       track('chat_message_submit');
-
       handleSubmit(event, chatRequestOptions);
     } catch (error) {
       console.error('Error checking message count:', error);
@@ -162,8 +190,8 @@ export function Chat({
       <ApiKeysModal 
         open={showApiKeysModal} 
         onOpenChange={setShowApiKeysModal}
-        title="Message Limit Reached"
-        description="You have reached your free message limit. Please add your OpenAI API key to continue using the chat."
+        title={`${provider.name} Message Limit Reached`}
+        description={`You have reached your free message limit for ${provider.name} models. Please add your ${provider.name} API key to continue using this model, or switch to another AI provider.`}
       />
     </>
   );

@@ -1,13 +1,21 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Eye, EyeOff } from 'lucide-react';
-import { getOpenAIApiKey, setOpenAIApiKey, getFinancialDatasetsApiKey, setFinancialDatasetsApiKey } from '@/lib/db/api-keys';
-import { validateOpenAIKey } from '@/lib/utils/api-key-validation';
-
+import { 
+  getOpenAIApiKey, 
+  setOpenAIApiKey, 
+  getFinancialDatasetsApiKey, 
+  setFinancialDatasetsApiKey,
+  getGeminiApiKey, 
+  setGeminiApiKey, 
+  getClaudeApiKey, 
+  setClaudeApiKey 
+} from '@/lib/db/api-keys';
+import { validateOpenAIKey, validateGeminiKey, validateClaudeKey } from '@/lib/utils/api-key-validation';
 
 interface ApiKeysModalProps {
   open: boolean;
@@ -22,27 +30,74 @@ export function ApiKeysModal({
   title = "Configure API keys",
   description 
 }: ApiKeysModalProps) {
-  const [openAIKey, setOpenAIKey] = useState(getOpenAIApiKey() || '');
-  const [financialKey, setFinancialKey] = useState(getFinancialDatasetsApiKey() || '');
+  const [openAIKey, setOpenAIKey] = useState('');
+  const [financialKey, setFinancialKey] = useState('');
+  const [geminiKey, setGeminiKey] = useState('');
+  const [claudeKey, setClaudeKey] = useState('');
+
+  
+  useEffect(() => {
+    const loadApiKeys = async () => {
+      const [openAI, financial, gemini, claude] = await Promise.all([
+        getOpenAIApiKey(),
+        getFinancialDatasetsApiKey(),
+        getGeminiApiKey(),
+        getClaudeApiKey()
+      ]);
+
+      setOpenAIKey(openAI || '');
+      setFinancialKey(financial || '');
+      setGeminiKey(gemini || '');
+      setClaudeKey(claude || '');
+    };
+
+    loadApiKeys();
+  }, []);
+
   const [showOpenAIKey, setShowOpenAIKey] = useState(false);
   const [showFinancialKey, setShowFinancialKey] = useState(false);
+  const [showGeminiKey, setShowGeminiKey] = useState(false);
+  const [showClaudeKey, setShowClaudeKey] = useState(false);
   const [openAIError, setOpenAIError] = useState<string>('');
+  const [geminiError, setGeminiError] = useState<string>('');
+  const [claudeError, setClaudeError] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
 
   const handleSave = async () => {
     try {
       setIsLoading(true);
       setOpenAIError('');
+      setGeminiError('');
+      setClaudeError('');
 
-      const { isValid, error } = await validateOpenAIKey(openAIKey);
-      
-      if (!isValid) {
-        setOpenAIError(error ?? 'Invalid OpenAI API key');
-        return;
+      if (openAIKey) {
+        const { isValid, error } = await validateOpenAIKey(openAIKey);
+        if (!isValid) {
+          setOpenAIError(error ?? 'Invalid OpenAI API key');
+          return;
+        }
+      }
+
+      if (geminiKey) {
+        const { isValid, error } = await validateGeminiKey(geminiKey);
+        if (!isValid) {
+          setGeminiError(error ?? 'Invalid Gemini API key');
+          return;
+        }
+      }
+
+      if (claudeKey) {
+        const { isValid, error } = await validateClaudeKey(claudeKey);
+        if (!isValid) {
+          setClaudeError(error ?? 'Invalid Claude API key');
+          return;
+        }
       }
 
       await Promise.all([
         setOpenAIApiKey(openAIKey),
+        setGeminiApiKey(geminiKey),
+        setClaudeApiKey(claudeKey),
         setFinancialDatasetsApiKey(financialKey)
       ]);
 
@@ -136,6 +191,75 @@ export function ApiKeysModal({
               </a>
             </p>
           </div>
+          {/* Add Gemini API Key section */}
+          <div className="space-y-2">
+            <label htmlFor="gemini-key" className="text-sm font-medium">
+              Google Gemini API Key
+            </label>
+            <div className="relative">
+              <Input
+                id="gemini-key"
+                type={showGeminiKey ? "text" : "password"}
+                value={geminiKey}
+                onChange={(e) => setGeminiKey(e.target.value)}
+                placeholder="Enter your Gemini API key"
+              />
+              <button
+                type="button"
+                onClick={() => setShowGeminiKey(!showGeminiKey)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+              >
+                {showGeminiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Get your API key from{' '}
+              <a 
+                href="https://makersuite.google.com/app/apikey"
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-primary hover:underline"
+              >
+                Google AI Studio
+              </a>
+            </p>
+          </div>
+
+          {/* Add Claude API Key section */}
+          <div className="space-y-2">
+            <label htmlFor="claude-key" className="text-sm font-medium">
+              Anthropic Claude API Key
+            </label>
+            <div className="relative">
+              <Input
+                id="claude-key"
+                type={showClaudeKey ? "text" : "password"}
+                value={claudeKey}
+                onChange={(e) => setClaudeKey(e.target.value)}
+                placeholder="Enter your Claude API key"
+              />
+              <button
+                type="button"
+                onClick={() => setShowClaudeKey(!showClaudeKey)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+              >
+                {showClaudeKey ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Get your API key from{' '}
+              <a 
+                href="https://console.anthropic.com/account/keys" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-primary hover:underline"
+              >
+                Anthropic Console
+              </a>
+            </p>
+          </div>
+
+          {/* Financial Datasets section remains the same */}
         </div>
         <div className="flex justify-end">
           <Button onClick={handleSave} disabled={isLoading}>
@@ -145,4 +269,4 @@ export function ApiKeysModal({
       </DialogContent>
     </Dialog>
   );
-} 
+}
