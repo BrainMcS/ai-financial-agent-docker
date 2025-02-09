@@ -1,7 +1,7 @@
 'use client';
 
 import { startTransition, useMemo, useOptimistic, useState, useEffect } from 'react';
-import { saveModelId } from '@/app/(chat)/actions';
+import { saveModelId } from '@/lib/actions/chatActions';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,

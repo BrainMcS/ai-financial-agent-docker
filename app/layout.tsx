@@ -8,6 +8,13 @@ import { Analytics } from "@vercel/analytics/react"
 
 import './globals.css';
 
+import { cookies } from 'next/headers';
+import { AppSidebar } from '@/components/app-sidebar';
+import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
+import { auth } from '@/lib/auth';  // Updated auth import path
+import Script from 'next/script';
+import { updateChatVisibility } from '@/lib/actions/chatActions';
+
 export const metadata: Metadata = {
   metadataBase: new URL('https://chat.vercel.ai'),
   title: 'Financial Datasets | Chat',
@@ -38,20 +45,15 @@ const THEME_COLOR_SCRIPT = `\
   updateThemeColor();
 })();`;
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const [session, cookieStore] = await Promise.all([auth(), cookies()]);
+  const isCollapsed = cookieStore.get('sidebar:state')?.value !== 'true';
   return (
-    <html
-      lang="en"
-      // `next-themes` injects an extra classname to the body element to avoid
-      // visual flicker before hydration. Hence the `suppressHydrationWarning`
-      // prop is necessary to avoid the React hydration mismatch warning.
-      // https://github.com/pacocoursey/next-themes?tab=readme-ov-file#with-app
-      suppressHydrationWarning
-    >
+    <html lang="en" suppressHydrationWarning>
       <head>
         <link
           href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
@@ -64,6 +66,10 @@ export default function RootLayout({
         />
       </head>
       <body className="antialiased">
+        <Script
+          src="https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js"
+          strategy="beforeInteractive"
+        />
         <SessionProvider>
           <ThemeProvider
             attribute="class"
@@ -71,9 +77,14 @@ export default function RootLayout({
             enableSystem
             disableTransitionOnChange
           >
-            <AuthCheck />
-            <Toaster position="top-center" />
-            {children}
+            <SidebarProvider defaultOpen={!isCollapsed}>
+              <AppSidebar user={session?.user} />
+              <SidebarInset>
+                <AuthCheck />
+                <Toaster position="top-center" />
+                {children}
+              </SidebarInset>
+            </SidebarProvider>
           </ThemeProvider>
           <Analytics />
         </SessionProvider>

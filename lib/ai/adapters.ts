@@ -46,74 +46,57 @@ import {
   
   export function createGeminiAdapter(model: GenerativeModel): ModelAdapter {
     async function prepareRequest(settings: any) {
-      return {
-        contents: [{ role: 'user', parts: [{ text: settings.prompt }] }],
-        generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 2048,
-        }
-      };
+      const prompt = settings.prompt || 
+                    (settings.messages && settings.messages[settings.messages.length - 1]?.content) || 
+                    '';
+      return { text: prompt };
+    }
+  
+    async function extractText(result: any): Promise<string> {
+      return result.response?.candidates?.[0]?.content?.parts?.[0]?.text || '';
     }
   
     return {
       provider: 'gemini',
-      generateContent: async (messages: any) => {
-        const result = await model.generateContent({
-          contents: messages.map((msg: any) => ({
-            role: msg.role,
-            parts: [{ text: msg.content }]
-          })),
-          generationConfig: {
-            temperature: 0.7,
-            maxOutputTokens: 2048,
-          },
-        });
-        return result;
-      },
-      specificationVersion: "v1",
       modelId: 'gemini-pro',
+      specificationVersion: "v1",
       defaultObjectGenerationMode: "json",
-      callAPI: async (settings: any) => {
-        return model.generateContent(settings);
+  
+      generateContent: async (params: any) => {
+        const prepared = await prepareRequest(params);
+        const result = await model.generateContent(prepared.text);
+        const text = result.response?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        return { response: result, text: () => text, content: text };
       },
-      validateSettings: (settings: any) => {
-        // Add validation if needed
-      },
-      prepareRequest,
-      handleResponse: async (response: any) => {
-        return response;
-      },
+  
       doGenerate: async (settings: any) => {
         const prepared = await prepareRequest(settings);
-        const response = await model.generateContent(prepared);
-        const text = await response.response.text();
-        return {
-          content: text,
-          rawResponse: response
-        };
+        const result = await model.generateContent(prepared.text);
+        const text = result.response?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        return { content: text, rawResponse: result };
       },
+  
       doStream: async (settings: any) => {
         const prepared = await prepareRequest(settings);
-        const response = await model.generateContent(prepared);
-        const responseText = await response.response.text();
+        const result = await model.generateContent(prepared.text);
+        const text = result.response?.candidates?.[0]?.content?.parts?.[0]?.text || '';
         
         return {
           stream: new ReadableStream<LanguageModelV1StreamPart>({
             start(controller) {
-              controller.enqueue({
-                type: 'text-delta',
-                textDelta: responseText
-              });
+              controller.enqueue({ type: 'text-delta', textDelta: text });
               controller.close();
             }
           }),
-          rawCall: {
-            rawPrompt: settings,
-            rawSettings: prepared
-          },
-          rawResponse: response
+          rawCall: { rawPrompt: settings, rawSettings: prepared },
+          rawResponse: result
         };
-      }
+      },
+  
+      callAPI: async (settings: any) => model.generateContent(settings),
+      validateSettings: () => {},
+      prepareRequest,
+      handleResponse: async (response: any) => response
     };
   }
   
